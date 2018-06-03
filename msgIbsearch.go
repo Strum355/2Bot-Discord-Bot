@@ -12,7 +12,8 @@ import (
 )
 
 func init() {
-	newCommand("ibsearch", 0, false, false, msgIbsearch).setHelp("Args: [search] | rating=[e,s,q] | format=[gif,png,jpg]\n\nReturns a random image from ibsearch for the given search term with the given filters applied.\n\n" +
+	newCommand("ibsearch", 0, false, false, msgIbsearch).setHelp("Args: [search] | rating=[e,s,q] | format=[gif,png,jpg]\n\n" +
+		"Returns a random image from ibsearch for the given search term with the given filters applied.\n\n" +
 		"Example:\n`!owo ibsearch lewds | rating=e | format=gif`")
 }
 
@@ -92,7 +93,7 @@ func msgIbsearch(s *discordgo.Session, m *discordgo.MessageCreate, msglist []str
 	}
 
 	var ibsearchStruct [1]ibStruct
-	if err := json.NewDecoder(page.Body).Decode(ibsearchStruct); err != nil {
+	if err := json.NewDecoder(page.Body).Decode(&ibsearchStruct); err != nil {
 		log.Error("IBSearch json unmarshal err", err)
 		s.ChannelMessageSend(m.ChannelID, "No results ¯\\_(ツ)_/¯")
 		return

@@ -35,8 +35,6 @@ func messageCreateEvent(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 		return strings.TrimPrefix(m.Content, prefix)
 	}())
-
-	return
 }
 
 func readyEvent(s *discordgo.Session, m *discordgo.Ready) {

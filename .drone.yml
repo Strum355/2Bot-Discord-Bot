@@ -1,4 +1,11 @@
 pipeline:
+  lint:
+    image: golang
+    commands:
+      - bash -c "if [[ \$(gofmt -l *.go) ]]; then gofmt -l *.go; exit 1; fi"
+    when:
+      event: [ push, pull_request ]
+
   docker-image:
     image: plugins/docker
     tags: latest
@@ -6,6 +13,10 @@ pipeline:
     repo: docker.netsoc.co/strum355/2bot
     registry: docker.netsoc.co
     secrets: [ docker_username, docker_password ]
+    when:
+      branch: master
+      status: [ success ]
+
   discord-notif:
     image: appleboy/drone-discord
     username: 2Bot CI
@@ -18,4 +29,5 @@ pipeline:
       {{else}}
         2Bot failed to build. Build num {{build.number}}.
       {{/success}}    
-branches: master
+    when:
+      branch: master

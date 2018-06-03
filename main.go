@@ -67,7 +67,7 @@ func dailyJobs() {
 func postServerCount() {
 	url := "https://bots.discord.pw/api/bots/301819949683572738/stats"
 
-	count := sMap.getCount()
+	count := len(dg.State.Guilds)
 
 	jsonStr := []byte(`{"server_count":` + strconv.Itoa(count) + `}`)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
@@ -86,11 +86,12 @@ func postServerCount() {
 	}
 	defer resp.Body.Close()
 
+	log.Info("POSTed " + strconv.Itoa(count) + " to bots.discord.pw")
+
 	if resp.StatusCode != http.StatusNoContent {
 		log.Error("received " + strconv.Itoa(resp.StatusCode) + " from bots.discord.pw")
 	}
 
-	log.Info("POSTed " + strconv.Itoa(count) + " to bots.discord.pw")
 }
 
 func setBotGame(s *discordgo.Session) {

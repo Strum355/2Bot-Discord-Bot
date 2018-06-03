@@ -236,7 +236,7 @@ func listQueue(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	for _, song := range srvr.iterateQueue() {
 		p.Add(&discordgo.MessageEmbed{
-			Title: fmt.Sprintf("Title: %s\nDuration: %s", song.Name, song.Duration),
+			Title: fmt.Sprintf("Title: %s\nDuration: %s\nURL: %s", song.Name, song.Duration, song.URL),
 
 			Image: &discordgo.MessageEmbedImage{
 				URL: song.Image,
