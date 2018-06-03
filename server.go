@@ -26,7 +26,11 @@ func (s *server) newVoiceInstance() {
 }
 
 func (s server) nextSong() song {
-	return s.VoiceInst.Queue.PopFront().(song)
+	return s.VoiceInst.Queue.Front().(song)
+}
+
+func (s server) finishedSong() {
+	s.VoiceInst.Queue.PopFront()
 }
 
 func (s server) addSong(song song) {
