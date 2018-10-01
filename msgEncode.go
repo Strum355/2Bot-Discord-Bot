@@ -28,7 +28,7 @@ func msgEncode(s *discordgo.Session, m *discordgo.MessageCreate, msglist []strin
 
 	switch base {
 	case "base64":
-		base64.StdEncoding.Encode(output, []byte(text))
+		output = []byte(base64.StdEncoding.EncodeToString([]byte(text)))
 	case "bcrypt":
 		var err error
 		if output, err = bcrypt.GenerateFromPassword([]byte(text), 14); err != nil {
