@@ -1,10 +1,15 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gobwas/glob"
+
+	"github.com/Knetic/govaluate"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -12,8 +17,92 @@ import (
 func init() {
 	newCommand("purge",
 		discordgo.PermissionAdministrator|discordgo.PermissionManageMessages|discordgo.PermissionManageServer,
-		true, msgPurge).setHelp("Args: [number] [@user]\n\nPurges 'number' amount of messages. Optionally, purge only the messages from a given user!\nAdmin only\n\nExample:\n`!owo purge 300`\n" +
-		"Example 2:\n`!owo purge 300 @Strum355#1180`").add()
+		true, msgPurgeEx).setHelp("purge messages using an expression, ex `purge 100 glob('*necroforger*', username) || glob('*owo*', content)` will purge all messages either from necroforger or containing the substring owo").add()
+}
+
+// msgPurgeEx is an extra purge function that uses govaluate
+func msgPurgeEx(s *discordgo.Session, m *discordgo.MessageCreate, msglist []string) {
+	if len(msglist) < 2 {
+		s.ChannelMessageSend(m.ChannelID, "This command requires an expression to delete messages with")
+		return
+	}
+
+	var limit int
+	if n, err := strconv.Atoi(msglist[1]); err == nil {
+		limit = n
+	} else {
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s is not a valid number, please enter an integer", msglist[1]))
+		return
+	}
+
+	if len(msglist) > 2 {
+		exp := strings.Join(msglist[2:], " ")
+		goexp, err := govaluate.NewEvaluableExpressionWithFunctions(exp, map[string]govaluate.ExpressionFunction{
+			// First argument glob expression, second is comparison
+			"glob": func(arguments ...interface{}) (interface{}, error) {
+				if len(arguments) < 2 {
+					return nil, errors.New("Glob requires two arguments")
+				}
+
+				var e glob.Glob
+				var content string
+				var err error
+
+				// Glob pattern
+				if s, ok := arguments[0].(string); ok {
+					e, err = glob.Compile(s)
+					if err != nil {
+						return nil, err
+					}
+				} else {
+					return nil, errors.New("first argument to glob must be a string")
+				}
+
+				// Comparison content
+				if s, ok := arguments[1].(string); ok {
+					content = s
+				} else {
+					return nil, errors.New("Second argument to glob must be a string")
+				}
+
+				return e.Match(content), nil
+			},
+		})
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, "Something went wrong with constructing your expression: "+exp+" "+err.Error())
+			return
+		}
+
+		err = messagePurge(limit, func(msg *discordgo.Message) (bool, error) {
+			result, err := goexp.Evaluate(map[string]interface{}{
+				"msg":               msg,
+				"username":          msg.Author.Username,
+				"userid":            msg.Author.ID,
+				"content":           msg.Content,
+				"id":                msg.ID,
+				"mentions_everyone": msg.MentionEveryone,
+				"channelid":         msg.ChannelID,
+			})
+			if err != nil {
+				s.ChannelMessageSend(m.ChannelID, "error evaluating expression: "+err.Error())
+				return false, err
+			}
+
+			b, ok := result.(bool)
+			if !ok {
+				s.ChannelMessageSend(m.ChannelID, "Expression result was not a boolean value")
+				return false, err
+			}
+
+			return b, nil
+		}, s, m)
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, "Error purging messages: "+err.Error())
+		}
+
+	} else {
+		standardPurge(limit, s, m)
+	}
 }
 
 func msgPurge(s *discordgo.Session, m *discordgo.MessageCreate, msglist []string) {
@@ -64,48 +153,59 @@ func getMessages(amount int, id string, s *discordgo.Session) (list []*discordgo
 	return
 }
 
-func standardPurge(purgeAmount int, s *discordgo.Session, m *discordgo.MessageCreate) error {
-	var outOfDate bool
-	for purgeAmount > 0 {
-		list, err := getMessages(purgeAmount%100, m.ChannelID, s)
+func messagePurge(purgeAmount int, purgefn func(*discordgo.Message) (bool, error), s *discordgo.Session, m *discordgo.MessageCreate) error {
+	var limit = purgeAmount
+	var beforeID string
+	messages := []string{}
+
+	// Obtain messages
+	for limit > 0 {
+		var l int
+
+		// Collect messages in batches of 100 at a time
+		if limit > 100 {
+			l = 100
+		} else {
+			l = limit
+		}
+
+		msgs, err := s.ChannelMessages(m.ChannelID, l, beforeID, "", "")
 		if err != nil {
-			s.ChannelMessageSend(m.ChannelID, "There was an issue deleting messages :(")
 			return err
 		}
 
-		//if more was requested to be deleted than exists
-		if len(list) == 0 {
+		// Done collecting messages, probably reached the end of the channel
+		if len(msgs) == 0 {
 			break
 		}
 
-		var purgeList []string
-		for _, msg := range list {
-			timeSince, err := getMessageAge(msg, s, m)
+		// Collect messages before this ID in the next round
+		beforeID = msgs[len(msgs)-1].ID
+
+		// Count the number of messages that pass the purge function
+		// To subtract them from the limit
+		var count int
+		for _, v := range msgs {
+			b, err := purgefn(v)
 			if err != nil {
-				//if the time is malformed for whatever reason, we'll try the next message
-				continue
+				return err
 			}
-
-			if timeSince.Hours()/24 >= 14 {
-				outOfDate = true
-				break
+			if b {
+				count++
+				messages = append(messages, v.ID)
 			}
-
-			purgeList = append(purgeList, msg.ID)
 		}
 
-		if err := massDelete(purgeList, s, m); err != nil {
-			return err
-		}
-
-		if outOfDate {
-			break
-		}
-
-		purgeAmount -= len(purgeList)
+		limit -= count
 	}
 
-	return nil
+	return s.ChannelMessagesBulkDelete(m.ChannelID, messages)
+}
+
+func standardPurge(purgeAmount int, s *discordgo.Session, m *discordgo.MessageCreate) error {
+	return messagePurge(purgeAmount, func(*discordgo.Message) (bool, error) {
+		return true, nil
+	}, s, m)
 }
 
 func userPurge(purgeAmount int, s *discordgo.Session, m *discordgo.MessageCreate, userToPurge string) error {
